@@ -9,11 +9,13 @@ namespace SubTerminalEX.Patches {
         internal static AccessTools.FieldRef<TerminalInterpreter, List<string>> tiArgs;
         internal static MethodInfo closestCmd;
         internal static AudioClip errorClip;
+        internal static AudioClip buyClip;
 
         private static void Cache(TerminalInterpreter term) {
             tiArgs = AccessTools.FieldRefAccess<TerminalInterpreter, List<string>>("args");
             closestCmd = AccessTools.Method("TerminalInterpreter:GetClosestCommand");
             errorClip = term.errorClip;
+            buyClip = term.buyClip;
 
             _fieldCached = true;
         }
@@ -22,11 +24,13 @@ namespace SubTerminalEX.Patches {
         [HarmonyPriority(Priority.First)] // there's no compat here, so it will be broken at some point
         [HarmonyWrapSafe]
         public static bool Prefix(ref string userInput, ref TerminalInterpreter __instance) {
+            //TODO: make this become IL patch
+
             if (!_fieldCached) Cache(__instance);
 
             ref List<string> args = ref tiArgs.Invoke(__instance); // woah, hacker man!
 
-            PLog.Inf($"Running: {userInput}");
+            PLog.Dbg($"Running: {userInput}");
 
             args.Clear();
             args.AddRange(userInput.Split([' '], StringSplitOptions.RemoveEmptyEntries)); // yes
@@ -34,8 +38,6 @@ namespace SubTerminalEX.Patches {
             if (args.Count == 0) {
                 return false;
             }
-
-            PLog.Inf($"Args: {args.Count}");
 
             args[0] = args[0].Replace("\\", "").Replace("/", "");
 
@@ -52,9 +54,8 @@ namespace SubTerminalEX.Patches {
                 __instance.currentPrompt = TerminalInterpreter.Prompts.None;
             }
 
-            PLog.Inf($"Args: {args.Count}");
-
-            if (!TerminalCommandManager._cdict.TryGetValue(args[0], out var cmd)) {
+            var commandKey = args[0];
+            if (!TerminalCommandManager._cdict.TryGetValue(commandKey, out var cmd)) {
                 string? text3 = Shared.GetClosestCommand(args[0]);
 
                 if (text3 != null) {
@@ -72,8 +73,7 @@ namespace SubTerminalEX.Patches {
                 return false;
             }
 
-            PLog.Inf("Command valid, running it method");
-            PLog.Inf(cmd.command);
+            PLog.Dbg($"Command {commandKey} is valid, running it action method keyed {cmd.command}");
 
             if (!cmd.argsOptional && !cmd.CheckArgs(args)) {
                 TerminalManager.instance.QueueTextLine("Incorrect use of parameters.  Use \"HELP\" for more info.");
@@ -86,15 +86,19 @@ namespace SubTerminalEX.Patches {
             }
 
             // before that we strip it command
+            args.RemoveAt(0);
 
-            if (args.Count > 0 && args[0] == cmd.command)
-                args.RemoveAt(0);
+            cmd.hookMethod?.Invoke(cmd.command, args, STEHookTarget.Before);
 
             if (cmd.actionMethod != null) {
-                __instance.StartCoroutine(cmd.actionMethod.Invoke(args));
-            } else {
+                __instance.StartCoroutine(cmd.actionMethod.Invoke(args)); // use this instead of below
+            }
+
+            if (!string.IsNullOrWhiteSpace(cmd.actionMethodName)) {
                 __instance.StartCoroutine(cmd.actionMethodName); // why they use this?, i dont know and i dont care
             }
+
+            cmd.hookMethod?.Invoke(cmd.command, args, STEHookTarget.After);
 
             return false;
         }

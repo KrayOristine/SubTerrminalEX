@@ -4,8 +4,7 @@ namespace SubTerminalEX {
     public class TerminalCommandEX : ScriptableObject
     {
         public bool CheckArgs(List<string> args) {
-            args.RemoveAt(0);
-            return args.Count == this.numArgs;
+            return args.Count - 1 == numArgs;
         }
 
         public TerminalCommandEX() {
@@ -15,25 +14,29 @@ namespace SubTerminalEX {
             return CreateInstance<TerminalCommandEX>();
         }
 
-        public string command;
+        public string command = string.Empty;
 
-        public int numArgs;
+        public string? _alias_original = string.Empty;
 
-        public string description;
+        public int numArgs = 0;
 
-        public string parameterDescription;
+        public string description = string.Empty;
 
-        public string example;
+        public string parameterDescription = string.Empty;
 
-        public string[] argTips;
+        public string example = string.Empty;
 
-        public string actionMethodName;
+        public string[] argTips = Array.Empty<string>();
 
-        public Func<List<string>, IEnumerator> actionMethod;
+        public string actionMethodName = string.Empty;
 
-        public bool argsOptional;
+        public Func<List<string>, IEnumerator>? actionMethod;
 
-        public bool hidden;
+        public Action<string, List<string>, STEHookTarget>? hookMethod;
+
+        public bool argsOptional = true;
+
+        public bool hidden = false;
 
         public static implicit operator TerminalCommandEX(TerminalCommand cmd) {
             var tex = TerminalCommandEX.Create();

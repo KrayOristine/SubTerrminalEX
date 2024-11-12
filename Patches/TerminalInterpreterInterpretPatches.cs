@@ -21,7 +21,7 @@ namespace SubTerminalEX.Patches {
         }
 
         [HarmonyPrefix]
-        [HarmonyPriority(Priority.First)] // there's no compat here, so it will be broken at some point
+        [HarmonyPriority(Priority.First)]
         [HarmonyWrapSafe]
         public static bool Prefix(ref string userInput, ref TerminalInterpreter __instance) {
             //TODO: make this become IL patch
@@ -33,10 +33,51 @@ namespace SubTerminalEX.Patches {
             PLog.Dbg($"Running: {userInput}");
 
             args.Clear();
-            args.AddRange(userInput.Split([' '], StringSplitOptions.RemoveEmptyEntries)); // yes
 
-            if (args.Count == 0) {
+            var split = userInput.TrimStart().Split([' '], StringSplitOptions.RemoveEmptyEntries);
+
+            if (split.Length == 0) return false;
+
+            if (split[0].StartsWith('"')) {
+                TerminalManager.instance.QueueTextLine("ERROR: command can not start with \" character");
+
                 return false;
+            }
+
+            args.Add(split[0]);
+
+            int i = 1;
+            int ac = split.Length;
+            var sb = new StringBuilder();
+            while (i < ac) {
+                if (split[i].StartsWith('"')) {
+                    sb.Append(split[i][1..]);
+                    bool valid = false;
+                    // walk until end
+                    while(i < ac) {
+                        i++;
+
+                        if (split[i].EndsWith('"')) {
+                            sb.Append(split[i][..^1]);
+                            args.Add(sb.ToString());
+                            sb.Clear();
+                            valid = true;
+                            break;
+                        }
+
+                        sb.Append(split[i]);
+                    }
+
+                    if (!valid) {
+                        TerminalManager.instance.QueueTextLine("ERROR: never ending string argument detected!");
+
+                        return false;
+                    }
+                } else {
+                    args.Add(split[i]);
+                }
+
+                i++;
             }
 
             args[0] = args[0].Replace("\\", "").Replace("/", "");

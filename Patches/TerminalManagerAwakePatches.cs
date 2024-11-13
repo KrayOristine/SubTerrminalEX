@@ -11,7 +11,9 @@ namespace SubTerminalEX.Patches {
         [HarmonyPostfix]
         [HarmonyWrapSafe]
         internal static void Postfix(ref TerminalManager __instance) {
-            __instance.skipBoot = true;
+            if (Plugin.pluginInstance.FastTerminalBoot) {
+                __instance.skipBoot = true;
+            }
         }
     }
 }

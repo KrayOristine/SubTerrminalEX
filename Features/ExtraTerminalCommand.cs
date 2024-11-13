@@ -3,13 +3,12 @@ using System.IO;
 using Microsoft.Win32;
 using Microsoft.Win32.SafeHandles;
 using static UnityEngine.GraphicsBuffer;
+using System.Runtime.InteropServices;
 
 namespace SubTerminalEX.Features
 {
-    public static class ExtraTerminalCommand
+    internal static class ExtraTerminalCommand
     {
-        private static bool _init = false;
-
         internal static AccessTools.FieldRef<TerminalManager, int> _TerminalManager_lastDestroyedLine;
 
 
@@ -38,7 +37,9 @@ namespace SubTerminalEX.Features
         }
 
         internal static readonly HashSet<string> _aliasList = new(); // list of newly created argB
-        internal static IEnumerator ProcessAliasFile(string path, int size) {
+        internal static string _palias_path = string.Empty;
+        internal static int _palias_size = 0;
+        internal static IEnumerator ProcessAliasFile() {
             const int DEFER_MARK = 1024 * 1024 * 16; // mark whereas after this point will yield pause
             const int UNSAFE_MARK = 1024 * 1024 * 32; // mark whereas file bigger than this will be read "slowly"
 
@@ -47,16 +48,16 @@ namespace SubTerminalEX.Features
 
             string[] str;
 
-            if (size < UNSAFE_MARK) {
-                str = File.ReadAllText(path, Encoding.UTF8).Split(['\n', ','], StringSplitOptions.RemoveEmptyEntries);
+            if (_palias_size < UNSAFE_MARK) {
+                str = File.ReadAllText(_palias_path, Encoding.UTF8).Split(['\n', ','], StringSplitOptions.RemoveEmptyEntries);
 
-                if (size > DEFER_MARK) yield return new WaitForEndOfFrame();
+                if (_palias_size > DEFER_MARK) yield return new WaitForEndOfFrame();
             } else {
                 // fuck you
                 const int READ_AMOUNT = 1024 * 4; // should be within os cache rate
 
                 var sb = new StringBuilder();
-                var std = File.Open(path, new FileStreamOptions() { Access = FileAccess.Read, Mode = FileMode.Open, Share = FileShare.None, BufferSize = READ_AMOUNT, Options = FileOptions.SequentialScan });
+                var std = File.Open(_palias_path, FileMode.Open, FileAccess.Read, FileShare.None);
                 var arr = new byte[READ_AMOUNT];
 
                 while (true) {
@@ -66,7 +67,7 @@ namespace SubTerminalEX.Features
                         sb.Append(arr[i]);
                     }
 
-                    Array.Clear(arr);
+                    Array.Clear(arr, 0, read);
 
                     if (read < READ_AMOUNT) {
                         break;
@@ -114,7 +115,6 @@ namespace SubTerminalEX.Features
 
             term.QueueTextLine("Successfully loaded alias file");
             term.EnableInput();
-
         }
 
         internal static IEnumerator CommandAlias(List<string> args) {
@@ -148,6 +148,7 @@ namespace SubTerminalEX.Features
 
                 case "REMOVE":
                 case "REM":
+                case "RM":
                     if (args.Count < 2) {
                         term.QueueTextLine($"ERROR: remove mapped alias command require 1 argument, received 0");
 
@@ -193,12 +194,12 @@ namespace SubTerminalEX.Features
                         yield break;
                     }
 
-                    argA = args[0];
+                    argA = args[1];
                     var root = Environment.CurrentDirectory;
                     var target = Path.Combine(root, $"{argA}.txt");
 
                     // now to the fun shit
-                    var std = File.Open(target, new FileStreamOptions() { Access = FileAccess.Write, Mode = FileMode.Create, Options = FileOptions.SequentialScan, Share = FileShare.None });
+                    var std = File.Open(target, FileMode.Create, FileAccess.Write, FileShare.None);
                     var writer = new StreamWriter(std, Encoding.UTF8);
 
                     foreach (var alias in _aliasList) {
@@ -208,11 +209,10 @@ namespace SubTerminalEX.Features
                         writer.Write(' ');
                         writer.Write(alias);
                         writer.Write(',');
+                        writer.Flush();
                     }
 
-                    writer.Flush();
-                    std.Seek(1, SeekOrigin.End);
-                    std.WriteByte(0);
+                    std.SetLength(std.Length - 1);
                     std.Flush();
 
                     writer.Close();
@@ -257,7 +257,9 @@ namespace SubTerminalEX.Features
                     term.QueueTextLine($"Loading pre-defined alias text file named: {argA}.txt");
                     term.QueueTextLine("WARN: This operation may took a long time");
 
-                    Plugin.instance.StartCoroutine(ProcessAliasFile(target, (int)fsize));
+                    _palias_path = target;
+                    _palias_size = (int)fsize;
+                    Plugin.Interpreter.StartCoroutine(ProcessAliasFile());
 
                     term.inputEnabled = false;
 
@@ -270,8 +272,8 @@ namespace SubTerminalEX.Features
                         yield break;
                     }
 
-                    argA = args[1]; // base
-                    argB = args[2]; // target
+                    argA = args[0]; // base
+                    argB = args[1]; // target
 
                     if (!TerminalCommandManager._cdict.ContainsKey(argA)) {
                         term.QueueTextLine($"ERROR: Can not map to non-existences command \"{argA}\"");
@@ -288,286 +290,65 @@ namespace SubTerminalEX.Features
             }
         }
 
-        internal static void ShowHelpPage(int pageIndex, int commandsPerPage) {
-            var clist = TerminalCommandManager._clist;
-            var cLen = clist.Count;
-            int num = Mathf.CeilToInt(cLen / (float)commandsPerPage);
-            TerminalManager.instance.QueueTextLine($"PAGE {pageIndex + 1} OF {num}", new Vector2(1f, 1f));
-            TerminalManager.instance.QueueTextLine("-------------------------------------------------------------------");
-            TerminalManager.instance.QueueTextLine("Available Commands:", new Vector2(1f, 1f));
-            int num2 = pageIndex * commandsPerPage;
-            while (num2 < (pageIndex + 1) * commandsPerPage && num2 <= cLen - 1) {
-                TerminalCommand terminalCommand = clist[num2];
-                if (!terminalCommand.hidden) {
-                    TerminalManager.instance.QueueTextLine(terminalCommand.command);
-                    TerminalManager.instance.QueueTextLine("                          Description:  " + terminalCommand.description);
-                    TerminalManager.instance.QueueTextLine("                          Parameters:   " + terminalCommand.parameterDescription);
-                    TerminalManager.instance.QueueTextLine("                          Example:      " + terminalCommand.example);
-                }
-                num2++;
-            }
-
-            TerminalManager.instance.QueueTextLine("-------------------------------------------------------------------", new Vector2(1f, 1f));
+        internal static MethodInfo _hatlist;
+        internal static MethodInfo _hatbuy;
+        internal static MethodInfo _upgradelist;
+        internal static MethodInfo _upgradebuy;
+        internal static IEnumerator HatShop(List<string> arg) {
+            return (IEnumerator)_hatlist.Invoke(TerminalInterpreterInterpretPatches.instance, null);
         }
 
-        internal static IEnumerator NewHelp(List<string> args) {
-            const int perPage = 5;
-            const float perPageF = 5f;
-            int num2 = 0;
-            int num3 = Mathf.CeilToInt(TerminalCommandManager._cdict.Count / perPageF);
-            if (args.Count > 0) {
-                try {
-                    num2 = int.Parse(args[0]) - 1;
-                } catch {
-                    num2 = 0;
-                }
-            }
-            if (num2 < 0 || num2 > num3 - 1) {
-                TerminalManager.instance.QueueTextLine("ERROR: \"" + args[0] + "\" is not a valid page.", new Vector2(1f, 1f), 0.075f, TerminalInterpreterInterpretPatches.errorClip, 1f);
-                yield break;
-            }
-
-            ShowHelpPage(num2, perPage);
-
-            if (num2 < num3 - 1) {
-                TerminalManager.instance.QueueTextLine("Type \"HELP " + (num2 + 2).ToString() + "\" to go to the next page.", new Vector2(0f, 1f));
-            }
-
-
-            yield return new WaitForEndOfFrame();
+        internal static IEnumerator HatBuy(List<string> arg) {
+            return (IEnumerator)_hatbuy.Invoke(TerminalInterpreterInterpretPatches.instance, null);
         }
 
-        internal static IEnumerator NewUpgradeShop(List<string> args) {
-            const int num = 8;
-            const float numF = 8f;
-            int num2 = 0;
-            int num3 = Mathf.CeilToInt(UpgradeManager.instance.catalog.items.Length / numF);
-            if (args.Count > 0) {
-                try {
-                    num2 = int.Parse(args[0]) - 1;
-                } catch {
-                    num2 = -1;
-                }
-            }
-            if (num2 < 0 || num2 > num3 - 1) {
-                TerminalManager.instance.QueueTextLine($"ERROR: \"{args[0]}\" is not a valid page.", new Vector2(1f, 1f), 0.075f, TerminalInterpreterInterpretPatches.errorClip, 1f);
-                yield break;
-            }
-
-            TerminalManager.instance.QueueTextLine($"UPGRADE CATALOG PAGE {num2+1} OF {num3}", new Vector2(1f, 0f));
-            TerminalManager.instance.QueueTextLine("-------------------------------------------------------------------", new Vector2(0f, 1f));
-            int num4 = num2 * num;
-            while (num4 < (num2 + 1) * num && num4 <= UpgradeManager.instance.catalog.items.Length - 1) {
-                UpgradeShopItem upgradeShopItem = UpgradeManager.instance.catalog.items[num4];
-                string text = "PRICE: " + UpgradeManager.instance.GetItemPrice(upgradeShopItem).ToString() + " BUCKS";
-                if (UpgradeManager.instance.unlockedUpgrades.Contains(upgradeShopItem.upgrade)) {
-                    text = "PURCHASED";
-                }
-                TerminalManager.instance.QueueTextLine($"[{upgradeShopItem.upgradeName.ToUpper()}] {new string('-', 30 - upgradeShopItem.upgradeName.Length)} {text}");
-                num4++;
-            }
-            TerminalManager.instance.QueueTextLine("-------------------------------------------------------------------");
-            if (num2 < num3 - 1) {
-                TerminalManager.instance.QueueTextLine($"Type \"UPGRADES {num2+2}\" to go to the next page.", new Vector2(0f, 1f));
-            }
-            TerminalManager.instance.QueueTextLine($"Your Balance: {GameController.instance.balance} BUCKS");
-            TerminalManager.instance.QueueTextLine("");
-            yield break;
+        internal static IEnumerator UpgradeShop(List<string> arg) {
+            return (IEnumerator)_upgradelist.Invoke(TerminalInterpreterInterpretPatches.instance, null);
         }
 
-        internal static IEnumerator NewUpgradeBuy(List<string> args) {
-            UpgradeShopItem? upgradeShopItem = null;
-            if (!GameController.instance.gameStarted) {
-                TerminalManager.instance.QueueTextLine("ERROR: Upgrades cannot be bought before initial departure.", Vector2.one, 0.075f, TerminalInterpreterInterpretPatches.errorClip, 1f);
-                yield break;
-            }
-            if (args.Count == 0) {
-                TerminalManager.instance.QueueTextLine("ERROR: Please specify the upgrade ID you wish to purchase, use command \"UPGRADES\" to view catalog.", Vector2.one, 0.075f, TerminalInterpreterInterpretPatches.errorClip, 1f);
-                yield break;
-            }
-
-            foreach (var upgradeShopItem2 in from UpgradeShopItem upgradeShopItem2 in UpgradeManager.instance.catalog.items
-                                             where upgradeShopItem2.upgradeName.ToUpper().StartsWith(args[0].Replace('_', ' '))
-                                             select upgradeShopItem2) {
-                upgradeShopItem = upgradeShopItem2;
-                break;
-            }
-
-            if (upgradeShopItem == null) {
-                TerminalManager.instance.QueueTextLine($"ERROR: Upgrade [{args[0]} not found, use command \"UPGRADES\" to view catalog.", Vector2.one, 0.075f, TerminalInterpreterInterpretPatches.errorClip, 1f);
-                yield break;
-            }
-            if (UpgradeManager.instance.unlockedUpgrades.Contains(upgradeShopItem.upgrade)) {
-                TerminalManager.instance.QueueTextLine($"ERROR: Upgrade [{args[0]}] has already been purchased.", Vector2.one, 0.075f, TerminalInterpreterInterpretPatches.errorClip, 1f);
-                yield break;
-            }
-            if (upgradeShopItem.upgrade == UpgradeManager.Upgrades.StorageCar && TrainCarManager.instance.cars.Count >= TrainCarManager.instance.maxCars) {
-                TerminalManager.instance.QueueTextLine("ERROR: Train car limit has been reached.", Vector2.one, 0.075f, TerminalInterpreterInterpretPatches.errorClip, 1f);
-                yield break;
-            }
-            int itemPrice = UpgradeManager.instance.GetItemPrice(upgradeShopItem);
-            if (itemPrice > GameController.instance.balance) {
-                TerminalManager.instance.QueueTextLine("ERROR: Insufficient funds. The A.S.A does not give free handouts.", Vector2.one, 0.075f, TerminalInterpreterInterpretPatches.errorClip, 1f);
-                yield break;
-            }
-            StatisticsManager.instance.ChangePlayerValue("totalSpend", itemPrice);
-            AchievementManager.instance.ChangeStat("total_spend", itemPrice, true);
-            GameController.instance.ChangeBalance(-itemPrice, false);
-            TerminalManager.instance.QueueTextLine($"Purchased {upgradeShopItem.upgradeName} upgrade for {itemPrice} BUCKS.", Vector2.one, 0.075f, TerminalInterpreterInterpretPatches.buyClip, 0.7f);
-            TerminalManager.instance.QueueTextLine($"Remaining Balance: {GameController.instance.balance} BUCKS", new Vector2(0f, 1f));
-            UpgradeManager.instance.Unlock(upgradeShopItem.upgrade);
-            yield return new WaitForEndOfFrame();
-            yield break;
-        }
-
-        internal static IEnumerator NewHatShop(List<string> args) {
-            const int num = 10;
-            const float numF = 10f;
-            int num2 = 0;
-            int num3 = Mathf.CeilToInt(ShopkeeperController.instance.items.Count / numF);
-            if (args.Count > 0) {
-                try {
-                    num2 = int.Parse(args[0]) - 1;
-                } catch {
-                    num2 = -1;
-                }
-            }
-            if (num2 < 0 || num2 > num3 - 1) {
-                TerminalManager.instance.QueueTextLine($"ERROR: \"{args[0]}\" is not a valid page.", new Vector2(1f, 1f), 0.075f, TerminalInterpreterInterpretPatches.errorClip, 1f);
-                yield break;
-            }
-            TerminalManager.instance.QueueTextLine($"HAT CATALOG PAGE {num2+1} OF {num3}", new Vector2(1f, 0f));
-            TerminalManager.instance.QueueTextLine("-------------------------------------------------------------------", new Vector2(0f, 1f));
-            int num4 = num2 * num;
-            while (num4 < (num2 + 1) * num && num4 <= ShopkeeperController.instance.items.Count - 1) {
-                GameObject gameObject = ShopkeeperController.instance.items[num4];
-                string text = $"PRICE: 5 BUCKS";
-                if (ShopkeeperController.instance.boughtItems.Contains(gameObject.name)) {
-                    text = "PURCHASED";
-                }
-
-                TerminalManager.instance.QueueTextLine($"[{gameObject.name.ToUpper().Replace("HAT_", "")}] {new string('-', 30  - gameObject.name.Length)} {text}", Vector2.right);
-                num4++;
-            }
-            TerminalManager.instance.QueueTextLine("-------------------------------------------------------------------", default(Vector2));
-            if (num2 < num3 - 1) {
-                TerminalManager.instance.QueueTextLine($"Type \"HATS {num2+2}\" to go to the next page.", new Vector2(0f, 1f));
-            }
-            TerminalManager.instance.QueueTextLine($"Your Balance: {GameController.instance.balance} BUCKS", default(Vector2));
-            TerminalManager.instance.QueueTextLine("", default(Vector2));
-            yield break;
-        }
-
-        internal static IEnumerator NewHatBuy(List<string> args) {
-            string text = "";
-            if (args.Count == 0) {
-                TerminalManager.instance.QueueTextLine("ERROR: Please specify the hat you wish to purchase, use command \"HATS\" to view catalog.", Vector2.one, 0.075f, TerminalInterpreterInterpretPatches.errorClip, 1f);
-                yield break;
-            }
-
-            foreach (var gameObject in from GameObject gameObject in ShopkeeperController.instance.items
-                                       where gameObject.name.ToUpper().Replace("HAT_", "").StartsWith(args[0].Replace('_', ' '))
-                                       select gameObject) {
-                text = gameObject.name;
-                break;
-            }
-
-            if (text == "") {
-                TerminalManager.instance.QueueTextLine($"ERROR: Hat [{args[0]}] not found, use command \"HATS\" to view catalog.", Vector2.one, 0.075f, TerminalInterpreterInterpretPatches.errorClip, 1f);
-                yield break;
-            }
-            if (ShopkeeperController.instance.boughtItems.Contains(text)) {
-                TerminalManager.instance.QueueTextLine($"ERROR: Hat [{args[0]}] is out of stock.", Vector2.one, 0.075f, TerminalInterpreterInterpretPatches.errorClip, 1f);
-                yield break;
-            }
-            int num = 5;
-            if (num > GameController.instance.balance) {
-                TerminalManager.instance.QueueTextLine("ERROR: Insufficient funds. The A.S.A does not give free handouts.", Vector2.one, 0.075f, TerminalInterpreterInterpretPatches.errorClip, 1f);
-                yield break;
-            }
-            if (ShopkeeperController.instance.currentHatIndex != -1) {
-                TerminalManager.instance.QueueTextLine("ERROR: Shopkeeper is busy, wait your turn.", Vector2.one, 0.075f, TerminalInterpreterInterpretPatches.errorClip, 1f);
-                yield break;
-            }
-            StatisticsManager.instance.ChangePlayerValue("totalSpend", num);
-            AchievementManager.instance.ChangeStat("total_spend", num, true);
-            GameController.instance.ChangeBalance(-num, false);
-            TerminalManager.instance.QueueTextLine($"Purchased {text.ToUpper()} hat for {num} BUCKS.", new Vector2(1f, 1f), 0.075f, TerminalInterpreterInterpretPatches.buyClip, 0.7f);
-            TerminalManager.instance.QueueTextLine($"Remaining Balance: {GameController.instance.balance} BUCKS", new Vector2(0f, 1f));
-            ShopkeeperController.instance.GiveHat(text);
-            yield return new WaitForEndOfFrame();
-            yield break;
+        internal static IEnumerator UpgradeBuy(List<string> arg) {
+            return (IEnumerator)_upgradebuy.Invoke(TerminalInterpreterInterpretPatches.instance, null);
         }
 
 
-        public static void Register()
+        internal static void Register()
         {
-            if (_init) return;
 
             // clear
-            TerminalCommandManager.AddNoArgumentCommand("Clear terminal",
+            TerminalCommandManager.AddNoArgumentCommand("clear",
+                                                        CommandClear,
+                                                        "Clear terminal",
                                                         "Clear the terminal",
-                                                        "clear",
-                                                        "",
-                                                        CommandClear);
+                                                        ""
+                                                        );
             TerminalCommandManager.AliasCommand("clear", "cls");
             _TerminalManager_lastDestroyedLine = AccessTools.FieldRefAccess<TerminalManager, int>("lastDestroyedLine");
 
             // argB system
-            TerminalCommandManager.AddCommand("Alias system",
+            TerminalCommandManager.AddCommand("alias", CommandAlias,
+                                                        "Alias system",
                                                         "Create terminal alias",
-                                                        "alias",
                                                         1,
+                                                        false,
                                                         false,
                                                         "[kind] [args]",
                                                         [""],
-                                                        "alias set view_cam vcam",
-                                                        CommandAlias);
+                                                        "alias set view_cam vcam");
 
-            // override help with our new help
-            TerminalCommandManager.OverrideCommand("help", NewHelp);
+            // hats and upgrades 'hacks'
 
-            /*
-            TerminalCommandManager.AddCommand("Open upgrade shop",
-                                                        "Open upgrade shop",
-                                                        "upgrades",
-                                                        1,
-                                                        true,
-                                                        "[page]",
-                                                        [""],
-                                                        "upgrades 1",
-                                                        NewUpgradeShop);
+            _hatlist = AccessTools.Method("TerminalInterpreter:OpenHatShopCommand");
+            _hatbuy = AccessTools.Method("TerminalInterpreter:BuyHatCommand");
+            _upgradelist = AccessTools.Method("TerminalInterpreter:OpenUpgradeShopCommand");
+            _upgradebuy = AccessTools.Method("TerminalInterpreter:BuyUpgradeCommand");
 
-            TerminalCommandManager.AddCommand("Buy upgrade",
-                                                        "Buy upgrade",
-                                                        "buy_upgrade",
-                                                        1,
-                                                        true,
-                                                        "[name]",
-                                                        [""],
-                                                        "buy_upgrade helmet_radio",
-                                                        NewUpgradeShop);
+            TerminalCommandManager.AddCommand("hats", HatShop);
 
-            TerminalCommandManager.AddCommand("Open hats shop",
-                                                        "Open hats shop",
-                                                        "hats",
-                                                        1,
-                                                        true,
-                                                        "[page]",
-                                                        [""],
-                                                        "hats 1",
-                                                        NewUpgradeShop);
+            TerminalCommandManager.AddCommand("buy_hat", HatBuy, argAmount: 1, forceExactArgumentCount: true);
 
-            TerminalCommandManager.AddCommand("Buy hats",
-                                                        "Buy hats",
-                                                        "buy_hat",
-                                                        1,
-                                                        true,
-                                                        "[name]",
-                                                        [""],
-                                                        "buy_hat NotHat",
-                                                        NewUpgradeShop);
-            */
+            TerminalCommandManager.AddCommand("upgrades", UpgradeShop);
+
+            TerminalCommandManager.AddCommand("buy_upgrade", UpgradeBuy, argAmount: 1, forceExactArgumentCount: true);
         }
     }
 }

@@ -1,69 +1,119 @@
 ﻿
 
 namespace SubTerminalEX {
+    /// <summary>
+    /// Extended Terminal Command Object (ETCO)
+    /// </summary>
     public class TerminalCommandEX : ScriptableObject
     {
-        public bool CheckArgs(List<string> args) {
-            return args.Count - 1 == numArgs;
+        internal bool CheckArgs(List<string> args) {
+            if (ForceExactArgument)
+                return args.Count - 1 == NumArgs;
+            else
+                return args.Count - 1 >= NumArgs;
         }
 
-        public TerminalCommandEX() {
+        /// <summary>
+        /// Internal only
+        /// </summary>
+        internal TerminalCommandEX() {
         }
 
-        public static TerminalCommandEX Create() {
+        internal static TerminalCommandEX Create() {
             return CreateInstance<TerminalCommandEX>();
         }
 
-        public string command = string.Empty;
+        /// <summary>
+        /// command
+        /// </summary>
+        public string Command = string.Empty;
 
-        public string? _alias_original = string.Empty;
+        /// <summary>
+        /// the original command that this alias point to
+        /// </summary>
+        internal string? _alias_original = string.Empty;
 
-        public int numArgs = 0;
+        /// <summary>
+        /// minimum amount of argument this command need
+        /// </summary>
+        public int NumArgs = 0;
 
-        public string description = string.Empty;
+        /// <summary>
+        /// like it name
+        /// </summary>
+        public string Description = string.Empty;
 
-        public string parameterDescription = string.Empty;
+        /// <summary>
+        /// like it name
+        /// </summary>
+        public string ParameterDescription = string.Empty;
 
-        public string example = string.Empty;
+        /// <summary>
+        /// like it name
+        /// </summary>
+        public string Example = string.Empty;
 
-        public string[] argTips = Array.Empty<string>();
+        /// <summary>
+        /// i dont know and i dont care
+        /// </summary>
+        public string[] ArgTips = Array.Empty<string>();
 
-        public string actionMethodName = string.Empty;
+        /// <summary>
+        /// string that will be executed, preserved for vanilla (you should not modify this)
+        /// </summary>
+        internal string actionMethodName = string.Empty;
 
-        public Func<List<string>, IEnumerator>? actionMethod;
+        /// <summary>
+        /// action that execute upon command ran
+        /// </summary>
+        public Func<List<string>, IEnumerator>? ActionMethod;
 
-        public Action<string, List<string>, STEHookTarget>? hookMethod;
+        /// <summary>
+        /// hook action that execute on command ran
+        /// </summary>
+        public Action<string, List<string>, STEHookTarget>? HookMethod;
 
-        public bool argsOptional = true;
+        /// <summary>
+        /// is argument optional for this command? (ignore argument check)
+        /// </summary>
+        public bool ArgsOptional = true;
 
-        public bool hidden = false;
+        /// <summary>
+        /// is this command hidden for normal user (dont show up)
+        /// </summary>
+        public bool Hidden = false;
+
+        /// <summary>
+        /// force interpreter to strip argument down to exactly <see cref="TerminalCommandEX.NumArgs"/>
+        /// </summary>
+        public bool ForceExactArgument = true;
 
         public static implicit operator TerminalCommandEX(TerminalCommand cmd) {
             var tex = TerminalCommandEX.Create();
-            tex.command = cmd.command;
-            tex.numArgs = cmd.numArgs;
-            tex.description = cmd.description;
-            tex.parameterDescription = cmd.parameterDescription;
-            tex.example = cmd.example;
-            tex.argTips = cmd.argTips;
+            tex.Command = cmd.command;
+            tex.NumArgs = cmd.numArgs;
+            tex.Description = cmd.description;
+            tex.ParameterDescription = cmd.parameterDescription;
+            tex.Example = cmd.example;
+            tex.ArgTips = cmd.argTips;
             tex.actionMethodName = cmd.actionMethod;
-            tex.argsOptional = cmd.argsOptional;
-            tex.hidden = cmd.hidden;
+            tex.ArgsOptional = cmd.argsOptional;
+            tex.Hidden = cmd.hidden;
 
             return tex;
         }
 
         public static implicit operator TerminalCommand(TerminalCommandEX tex) {
             var cmd = CreateInstance<TerminalCommand>();
-            cmd.command = tex.command;
-            cmd.numArgs = tex.numArgs;
-            cmd.description = tex.description;
-            cmd.parameterDescription = tex.parameterDescription;
-            cmd.example = tex.example;
-            cmd.argTips = tex.argTips;
+            cmd.command = tex.Command;
+            cmd.numArgs = tex.NumArgs;
+            cmd.description = tex.Description;
+            cmd.parameterDescription = tex.ParameterDescription;
+            cmd.example = tex.Example;
+            cmd.argTips = tex.ArgTips;
             cmd.actionMethod = tex.actionMethodName;
-            cmd.argsOptional = tex.argsOptional;
-            cmd.hidden = tex.hidden;
+            cmd.argsOptional = tex.ArgsOptional;
+            cmd.hidden = tex.Hidden;
 
             return cmd;
         }

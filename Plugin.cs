@@ -7,30 +7,33 @@ using UnityEngine.UIElements.Collections;
 namespace SubTerminalEX;
 
 [BepInPlugin(SubterexInfo.PLUG_GUID, SubterexInfo.PLUG_NAME, SubterexInfo.PLUG_VER)]
-public sealed class Plugin : BaseUnityPlugin
+internal sealed class Plugin : BaseUnityPlugin
 {
     internal static Harmony? _harmony;
-    internal static Plugin instance;
+    internal static Plugin pluginInstance;
+    internal static bool GameStarted = false;
 
-    internal static bool DebugMode = false;
+    internal bool DebugMode = false;
+    internal bool FastTerminalBoot = false;
+    internal bool EnableAutoload = false;
+    internal string AutoloadTargetFile = string.Empty;
+
+    // fuck me
+    internal static MonoBehaviour Interpreter => TerminalManager.instance.interpreter;
 
     private void Awake()
     {
-        instance = this;
+        pluginInstance = this;
 
         if (_harmony != null) {
             _harmony.UnpatchSelf();
             _harmony = null;
         }
 
-        if (Config.Count <= 0) {
-            SetupConfig();
-        }
+        SetupConfig();
+        CacheConfig();
 
-        PreloadConfig();
-
-        // Plugin startup logic
-        PLog.InitLog(base.Logger);
+        PLog.InitLog(Logger);
 
         PLog.Inf($"Loaded successfully - version: {SubterexInfo.PLUG_VER}");
 
@@ -40,14 +43,26 @@ public sealed class Plugin : BaseUnityPlugin
         Startup();
     }
 
-    private static void OnDestroy() {
+    private void OnDestroy() {
         if (_harmony == null) return;
+
+        PLog.Wrn("SubTerminalEX is destroyed!, terminating all feature and patches...");
 
         _harmony.UnpatchSelf();
         _harmony = null;
     }
 
-    private static void FixedUpdate() {
+
+    internal int ticks = 0;
+    private void FixedUpdate() {
+        if (!GameStarted) return;
+        if (ticks < 10) {
+            ticks++;
+
+            return;
+        }
+
+        ticks = 0;
         TerminalCommandManager.Update();
     }
 
@@ -59,12 +74,11 @@ public sealed class Plugin : BaseUnityPlugin
     internal const string ConfigTerminalSection = "Terminal Settings";
     internal void OnGameStartup() {
         TerminalCommandManager.UpdateToGame();
+        GameStarted = true;
 
-
-
-        if (Config.TryGetEntry<bool>(ConfigAliasSection, "Enable Autoload", out var autoload) && autoload.Value) {
+        if (EnableAutoload) {
             var root = Environment.CurrentDirectory;
-            var target = Path.Combine(root, (string)(Config[ConfigAliasSection, "Autoload File"].BoxedValue));
+            var target = Path.Combine(root, $"{AutoloadTargetFile.ToUpper()}.txt");
 
             var fsize = new FileInfo(target).Length;
             const int OneGig = 1024 * 1024 * 1024;
@@ -73,25 +87,32 @@ public sealed class Plugin : BaseUnityPlugin
             }
 
             if (File.Exists(target)) {
-                StartCoroutine(ExtraTerminalCommand.ProcessAliasFile(target, (int)fsize));
+                ExtraTerminalCommand._palias_path = target;
+                ExtraTerminalCommand._palias_size = (int)fsize;
+                StartCoroutine(ExtraTerminalCommand.ProcessAliasFile());
             }
         }
     }
 
-    internal void PreloadConfig() {
+    internal static T GetValueFromConfigEntry<T>(ConfigEntryBase entry) {
+        return entry.BoxedValue != null ? (T)entry.BoxedValue : (T)entry.DefaultValue;
+    }
+
+    internal void CacheConfig() {
         // more like cache but meh
 
-        var entry = Config["Debug", "Debug Mode"];
-        DebugMode = entry.BoxedValue != null ? (bool)entry.BoxedValue : (bool)entry.DefaultValue;
-
+        DebugMode = GetValueFromConfigEntry<bool>(Config["Debug", "Debug Mode"]);
+        FastTerminalBoot = GetValueFromConfigEntry<bool>(Config[ConfigTerminalSection, "Skip Bootup Text"]);
+        EnableAutoload = GetValueFromConfigEntry<bool>(Config[ConfigAliasSection, "Enable Autoload"]);
+        AutoloadTargetFile = GetValueFromConfigEntry<string>(Config[ConfigAliasSection, "Autoload File"]);
     }
 
 
     internal void SetupConfig() {
 
         // auto load
-        Config.Bind(ConfigAliasSection, "Enable AutoLoad", false, "Allow this mod to automatically load your alias definition upon game start");
-        Config.Bind(ConfigAliasSection, "AutoLoad File", "aliasAutoLoad", "The target file name to load from");
+        Config.Bind(ConfigAliasSection, "Enable Autoload", false, "Allow this mod to automatically load your alias definition upon game start");
+        Config.Bind(ConfigAliasSection, "Autoload File", "aliasAutoLoad", "The target file name to load from");
 
         // fast ConfigTerminalSection
         Config.Bind(ConfigTerminalSection, "Skip Bootup Text", true, "Skip terminal bootup text");

@@ -1,8 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworkVersion>v4.8.2</TargetFrameworkVersion>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFramework>net48</TargetFramework>
     <AssemblyName>SubTerminalEX</AssemblyName>
     <Product>My first plugin</Product>
     <Version>1.1.0</Version>
@@ -17,6 +16,7 @@
     <RootNamespace>SubTerminalEX</RootNamespace>
     <Nullable>enable</Nullable>
     <Optimize>true</Optimize>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <OutputPath>./bin/Dlls</OutputPath>
   </PropertyGroup>
 

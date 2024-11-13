@@ -1,4 +1,5 @@
 ﻿using System.Linq;
+using System.Runtime.InteropServices;
 
 namespace SubTerminalEX.Patches {
 
@@ -7,15 +8,15 @@ namespace SubTerminalEX.Patches {
         // patch field
         internal static bool _fieldCached = false;
         internal static AccessTools.FieldRef<TerminalInterpreter, List<string>> tiArgs;
-        internal static MethodInfo closestCmd;
         internal static AudioClip errorClip;
         internal static AudioClip buyClip;
+        internal static TerminalInterpreter instance;
 
         private static void Cache(TerminalInterpreter term) {
             tiArgs = AccessTools.FieldRefAccess<TerminalInterpreter, List<string>>("args");
-            closestCmd = AccessTools.Method("TerminalInterpreter:GetClosestCommand");
             errorClip = term.errorClip;
             buyClip = term.buyClip;
+            instance = term;
 
             _fieldCached = true;
         }
@@ -28,9 +29,9 @@ namespace SubTerminalEX.Patches {
 
             if (!_fieldCached) Cache(__instance);
 
-            ref List<string> args = ref tiArgs.Invoke(__instance); // woah, hacker man!
-
             PLog.Dbg($"Running: {userInput}");
+
+            ref List<string> args = ref tiArgs.Invoke(__instance); // woah, hacker man!
 
             args.Clear();
 
@@ -38,7 +39,7 @@ namespace SubTerminalEX.Patches {
 
             if (split.Length == 0) return false;
 
-            if (split[0].StartsWith('"')) {
+            if (split[0].StartsWith("\"")) {
                 TerminalManager.instance.QueueTextLine("ERROR: command can not start with \" character");
 
                 return false;
@@ -50,22 +51,26 @@ namespace SubTerminalEX.Patches {
             int ac = split.Length;
             var sb = new StringBuilder();
             while (i < ac) {
-                if (split[i].StartsWith('"')) {
-                    sb.Append(split[i][1..]);
+                if (split[i].StartsWith("\"")) {
+                    var cur = split[i];
+                    sb.Append(cur.Substring(1));
+                    sb.Append(' ');
                     bool valid = false;
                     // walk until end
                     while(i < ac) {
                         i++;
+                        cur = split[i];
 
-                        if (split[i].EndsWith('"')) {
-                            sb.Append(split[i][..^1]);
+                        if (cur.EndsWith("\"")) {
+                            sb.Append(cur.Substring(0, cur.Length-1));
                             args.Add(sb.ToString());
                             sb.Clear();
                             valid = true;
                             break;
                         }
 
-                        sb.Append(split[i]);
+                        sb.Append(cur);
+                        sb.Append(' ');
                     }
 
                     if (!valid) {
@@ -95,6 +100,9 @@ namespace SubTerminalEX.Patches {
                 __instance.currentPrompt = TerminalInterpreter.Prompts.None;
             }
 
+            PLog.Dbg($"Args: ");
+            foreach (var arg in args) PLog.Dbg(arg);
+
             var commandKey = args[0];
             if (!TerminalCommandManager._cdict.TryGetValue(commandKey, out var cmd)) {
                 string? text3 = Shared.GetClosestCommand(args[0]);
@@ -114,14 +122,14 @@ namespace SubTerminalEX.Patches {
                 return false;
             }
 
-            PLog.Dbg($"Command {commandKey} is valid, running it action method keyed {cmd.command}");
+            PLog.Dbg($"Command {commandKey} is valid, running it action method keyed {cmd.Command}");
 
-            if (!cmd.argsOptional && !cmd.CheckArgs(args)) {
+            if (!cmd.ArgsOptional && !cmd.CheckArgs(args)) {
                 TerminalManager.instance.QueueTextLine("Incorrect use of parameters.  Use \"HELP\" for more info.");
                 TerminalManager.instance.QueueTextLine("Expected parameters and usage example:", new Vector2(1f, 1f));
-                TerminalManager.instance.QueueTextLine(cmd.command);
-                TerminalManager.instance.QueueTextLine("                Parameters:   " + cmd.parameterDescription);
-                TerminalManager.instance.QueueTextLine("                Example:      " + cmd.example, new Vector2(0f, 1f));
+                TerminalManager.instance.QueueTextLine(cmd.Command);
+                TerminalManager.instance.QueueTextLine("                Parameters:   " + cmd.ParameterDescription);
+                TerminalManager.instance.QueueTextLine("                Example:      " + cmd.Example, new Vector2(0f, 1f));
 
                 return false;
             }
@@ -129,17 +137,22 @@ namespace SubTerminalEX.Patches {
             // before that we strip it command
             args.RemoveAt(0);
 
-            cmd.hookMethod?.Invoke(cmd.command, args, STEHookTarget.Before);
+            if (cmd.ForceExactArgument && args.Count > cmd.NumArgs) {
+                args.RemoveRange(cmd.NumArgs, args.Count);
+            }
 
-            if (cmd.actionMethod != null) {
-                __instance.StartCoroutine(cmd.actionMethod.Invoke(args)); // use this instead of below
+            cmd.HookMethod?.Invoke(cmd.Command, args, STEHookTarget.Before);
+
+            if (cmd.ActionMethod != null) {
+                __instance.StartCoroutine(cmd.ActionMethod.Invoke(args)); // use this instead of below
             }
 
             if (!string.IsNullOrWhiteSpace(cmd.actionMethodName)) {
+
                 __instance.StartCoroutine(cmd.actionMethodName); // why they use this?, i dont know and i dont care
             }
 
-            cmd.hookMethod?.Invoke(cmd.command, args, STEHookTarget.After);
+            cmd.HookMethod?.Invoke(cmd.Command, args, STEHookTarget.After);
 
             return false;
         }

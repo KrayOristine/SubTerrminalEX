@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace SubTerminalEX {
     internal static class PLog {
-        internal static new ManualLogSource _log;
+        private static ManualLogSource? _log;
         private static bool _init = false;
 
         public static void InitLog(ManualLogSource logSource) {
@@ -18,19 +18,20 @@ namespace SubTerminalEX {
         }
 
         public static void Inf(string msg) {
-            _log.LogInfo(msg);
+            _log?.LogInfo(msg);
         }
 
         public static void Err(string msg) {
-            _log.LogError(msg);
+            _log?.LogError(msg);
         }
 
         public static void Dbg(string msg) {
-            _log.LogDebug(msg);
+            if (Plugin.pluginInstance.DebugMode)
+                _log?.LogInfo(msg);
         }
 
         public static void Wrn(string msg) {
-            _log.LogWarning(msg);
+            _log?.LogWarning(msg);
         }
     }
 }

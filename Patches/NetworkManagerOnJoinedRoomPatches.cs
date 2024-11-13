@@ -12,7 +12,7 @@ namespace SubTerminalEX.Patches {
         [HarmonyPostfix]
         [HarmonyWrapSafe]
         internal static void Postfix() {
-            Plugin.instance.OnGameStartup();
+            Plugin.pluginInstance.OnGameStartup();
         }
     }
 }

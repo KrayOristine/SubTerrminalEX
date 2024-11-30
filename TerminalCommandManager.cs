@@ -1,8 +1,12 @@
 ﻿using HarmonyLib;
+using SubTerminalEX.Features;
 using SubTerminalEX.Patches;
 
 namespace SubTerminalEX {
 
+    /// <summary>
+    /// Class that manage terminal command
+    /// </summary>
     public static class TerminalCommandManager {
         internal static readonly Dictionary<string, TerminalCommandEX> _cdict = new(); // dict to speed up getting
 
@@ -21,7 +25,9 @@ namespace SubTerminalEX {
             UpdateToGame();
         }
 
-        internal static void CacheVanillaCommand(TerminalCommand[] list) {
+        internal static void CacheVanillaCommand() {
+            var list = TerminalManager.instance.commands;
+
             foreach (var v in list) {
                 if (!_cdict.ContainsKey(v.command)) {
                     _cdict.Add(v.command, v);
@@ -52,12 +58,10 @@ namespace SubTerminalEX {
 
         internal static void UpdateToGame() {
             var cmds = TerminalManager.instance.commands;
-            CacheVanillaCommand(cmds);
-
-            // grow or reduce
             var old = cmds.Length;
             var newSize = _clist.Count + _cextra.Count;
 
+            // grow or reduce
             if (newSize == old) { // bruh
                 _lastModified = false;
                 return;
@@ -123,7 +127,7 @@ namespace SubTerminalEX {
         /// <param name="description">(optional)</param>
         /// <param name="command">user must type in this exact word to execute this command (case in-sensitive)</param>
         /// <param name="argAmount">amount of argument this command may need</param>
-        /// <param name="forceExactArgumentCount">make argument passed to this command stripped to the exact amount of argument it need</param>
+        /// <param name="forceExactArgumentCount">force interpreter to strip down argument down to exactly what the command require</param>
         /// <param name="argOptional">is argument optional on this command</param>
         /// <param name="parameterDesc">self-explanatory</param>
         /// <param name="argumentTips">self-explanatory</param>
@@ -161,10 +165,11 @@ namespace SubTerminalEX {
         /// <summary>
         /// Create an alias of an existing command
         /// </summary>
-        /// <param name="oldCommand"></param>
-        /// <param name="newAlias"></param>
+        /// <param name="oldCommand">Target command to create it alias, case in-sensitive</param>
+        /// <param name="newAlias">Target alias, case in-sensitive</param>
+        /// <param name="addToUserList">Should this alias added to user alias list (enable ability for user to remove it)</param>
         /// <returns><see langword="true"/> if able to alias a command, otherwise <see langword="false"/></returns>
-        public static bool AliasCommand(string oldCommand, string newAlias) {
+        public static bool AliasCommand(string oldCommand, string newAlias, bool addToUserList = false) {
             oldCommand = oldCommand.ToUpper();
             newAlias = newAlias.ToUpper();
             if (!_cdict.ContainsKey(oldCommand)) return false; // no origin exist
@@ -191,6 +196,7 @@ namespace SubTerminalEX {
 
             _cdict.Add(newAlias, ntex);
             _cextra.Add(ntex);
+            ExtraTerminalCommand._aliasList.Add(newAlias);
 
             _lastModified = true;
 
@@ -198,20 +204,21 @@ namespace SubTerminalEX {
         }
 
         /// <summary>
-        /// Override existing command with your custom
+        /// Override existing command with your own custom command
         /// </summary>
-        /// <param name="oldCommand"></param>
-        /// <param name="onInvoke"></param>
-        /// <param name="name"></param>
-        /// <param name="description"></param>
-        /// <param name="argAmount"></param>
-        /// <param name="argOptional"></param>
-        /// <param name="parameterDesc"></param>
-        /// <param name="argumentTips"></param>
-        /// <param name="example"></param>
-        /// <param name="hidden"></param>
+        /// <param name="oldCommand">Target command to override, case in-sensitive</param>
+        /// <param name="onInvoke">Func that run when original command is triggered</param>
+        /// <param name="name">change original command name</param>
+        /// <param name="description">change original command description</param>
+        /// <param name="argAmount">change original command argument amount</param>
+        /// <param name="argOptional">change original command argument optional boolean</param>
+        /// <param name="parameterDesc">change original command description of parameters</param>
+        /// <param name="argumentTips">change original command tips on argument usage</param>
+        /// <param name="example">change original command example of usage</param>
+        /// <param name="hidden">this shouldn't be touched</param>
+        /// <param name="forceExactArgumentCount">force interpreter to strip down argument down to exactly what the command require</param>
         /// <returns><see langword="true"/> if able to override a command, otherwise <see langword="false"/></returns>
-        public static bool OverrideCommand(string oldCommand, Func<List<string>, IEnumerator> onInvoke, string? name = null, string? description = null, int? argAmount = null, bool? argOptional = null, string? parameterDesc = null, string[]? argumentTips = null, string? example = null, bool? hidden = null) {
+        public static bool OverrideCommand(string oldCommand, Func<List<string>, IEnumerator> onInvoke, string? name = null, string? description = null, int? argAmount = null, bool? argOptional = null, string? parameterDesc = null, string[]? argumentTips = null, string? example = null, bool? hidden = null, bool? forceExactArgumentCount = false) {
             oldCommand = oldCommand.ToUpper();
             if (!_cdict.ContainsKey(oldCommand)) return false;
 
@@ -224,7 +231,7 @@ namespace SubTerminalEX {
             tex.ParameterDescription = parameterDesc ?? tex.ParameterDescription;
             tex.ActionMethod = onInvoke;
             tex.actionMethodName = string.Empty; // we remove this to prevent shit
-            tex.ForceExactArgument = false;
+            tex.ForceExactArgument = forceExactArgumentCount ?? false;
             tex.ArgsOptional = argOptional ?? tex.ArgsOptional;
             tex.ArgTips = argumentTips ?? tex.ArgTips;
             tex.Example = example ?? tex.Example;
@@ -235,12 +242,86 @@ namespace SubTerminalEX {
         /// <summary>
         /// Hook a command so that whenever it run your action would also run!
         /// </summary>
-        /// <param name="targetCommand"></param>
-        /// <param name="func"></param>
-        /// <param name="hookTarget"></param>
-        /// <param name="priority"></param>
+        /// <param name="targetCommand">Target hook command, case in-sensitive</param>
+        /// <param name="func">Method that execute when <paramref name="targetCommand"/> is triggered</param>
+        /// <param name="hookTarget">When should this hook run</param>
+        /// <param name="priority">Priority over other hook</param>
         /// <returns><see langword="true"/> if able to hook a command, otherwise <see langword="false"/></returns>
-        public static bool HookCommand(string targetCommand, Action<List<string>> func, STEHookTarget hookTarget = STEHookTarget.Default, STEHookPriority priority = STEHookPriority.Default) {
+        public static bool HookCommand(string targetCommand, Action<List<string>> func, STEHookPriority priority = STEHookPriority.Default, STEHookTarget hookTarget = STEHookTarget.Default) {
+            targetCommand = targetCommand.ToUpper();
+            if (!_cdict.ContainsKey(targetCommand)) return false;
+
+            if (_chook.TryGetValue(targetCommand, out var list)) {
+                var target = list[(int)hookTarget];
+
+                var data = new STEHookData(func, targetCommand, hookTarget, priority == STEHookPriority.None ? STEHookPriority.Default : priority);
+
+                // search it
+                var n = target.First;
+
+                if (n == null) {
+                    target.AddFirst(data);
+                    return true;
+                }
+
+                while (true) {
+                    if (n.Value.Priority < priority) target.AddBefore(n, data);
+                    if (n.Next == null) break;
+
+                    n = n.Next;
+                }
+
+                target.AddAfter(n, data);
+
+                return true;
+            }
+
+            // welp
+            var tex = _cdict[targetCommand];
+            tex.HookMethod = (string cmd, List<string> args, STEHookTarget executeTarget) => {
+                if (!_chook.TryGetValue(cmd, out var list)) return;
+
+                var exec = list[(int)executeTarget];
+
+                var n = exec.First;
+                while (n != null) {
+                    try {
+                        n.Value.Func.Invoke(args);
+                    } catch {
+                        PLog.Err($"Exception caught upon executing hook of \"{n.Value.TargetCommand}\" command");
+                        if (Plugin.pluginInstance.DebugMode) {
+                            throw; // we dont throw in normal environ, why yeah dont ask me because i dont know why, my brain just made me do it
+                        }
+                    }
+
+                    n = n.Next;
+                }
+            };
+
+            list = new LinkedList<STEHookData>[2];
+            var before = new LinkedList<STEHookData>();
+            var after = new LinkedList<STEHookData>();
+
+            list[0] = before;
+            list[1] = after;
+
+            // lazy at it finest
+            list[(int)hookTarget].AddFirst(new STEHookData(func, targetCommand, hookTarget, priority));
+
+            _chook.Add(targetCommand, list);
+
+            return true;
+        }
+
+        /// <summary>
+        /// Hook a command so that whenever it run your action would also run!
+        /// </summary>
+        /// <param name="targetCommand">Target hook command, case in-sensitive</param>
+        /// <param name="func">Method that execute when <paramref name="targetCommand"/> is triggered</param>
+        /// <param name="hookTarget">When should this hook run</param>
+        /// <param name="priority">Priority over other hook</param>
+        /// <returns><see langword="true"/> if able to hook a command, otherwise <see langword="false"/></returns>
+        public static bool HookCommand(string targetCommand, Action<List<string>> func, int priority = (int)STEHookPriority.Default, STEHookTarget hookTarget = STEHookTarget.Default) {
             targetCommand = targetCommand.ToUpper();
             if (!_cdict.ContainsKey(targetCommand)) return false;
 
@@ -258,7 +339,7 @@ namespace SubTerminalEX {
                 }
 
                 while (true) {
-                    if (n.Value.Priority < priority) target.AddBefore(n, data);
+                    if (n.Value.PriorityInt < priority) target.AddBefore(n, data);
                     if (n.Next == null) break;
 
                     n = n.Next;

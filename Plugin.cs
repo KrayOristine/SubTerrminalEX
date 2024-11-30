@@ -39,8 +39,6 @@ internal sealed class Plugin : BaseUnityPlugin
 
         _harmony = new Harmony(SubterexInfo.PLUG_GUID);
         _harmony.PatchAll(Assembly.GetExecutingAssembly());
-
-        Startup();
     }
 
     private void OnDestroy() {
@@ -66,14 +64,12 @@ internal sealed class Plugin : BaseUnityPlugin
         TerminalCommandManager.Update();
     }
 
-    private void Startup() {
-        ExtraTerminalCommand.Register();
-    }
-
     internal const string ConfigAliasSection = "Alias Settings";
     internal const string ConfigTerminalSection = "Terminal Settings";
     internal void OnGameStartup() {
+        TerminalCommandManager.CacheVanillaCommand();
         TerminalCommandManager.UpdateToGame();
+        ExtraTerminalCommand.Register();
         GameStarted = true;
 
         if (EnableAutoload) {
@@ -83,7 +79,7 @@ internal sealed class Plugin : BaseUnityPlugin
             var fsize = new FileInfo(target).Length;
             const int OneGig = 1024 * 1024 * 1024;
             if (fsize > OneGig) {
-                return;
+                return; // i, WHAT THE F***
             }
 
             if (File.Exists(target)) {

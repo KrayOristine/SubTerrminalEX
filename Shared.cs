@@ -1,12 +1,12 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
+﻿
 namespace SubTerminalEX {
+
+    /// <summary>
+    /// Shared method
+    /// </summary>
     public static class Shared {
-        public static int LevDist(string s1, string s2) {
+
+        internal static int LevDist(string s1, string s2) {
             int[,] array = new int[s1.Length + 1, s2.Length + 1];
             for (int i = 0; i <= s1.Length; i++) {
                 array[i, 0] = i;
@@ -23,6 +23,11 @@ namespace SubTerminalEX {
             return array[s1.Length, s2.Length];
         }
 
+        /// <summary>
+        /// Get the most similar command that are closest to given command
+        /// </summary>
+        /// <param name="inputCommand">Target command to search</param>
+        /// <returns>Command as string if found, otherwise return <see langword="null"/></returns>
         public static string? GetClosestCommand(string inputCommand) {
             int num = int.MaxValue;
             string? text = null;
